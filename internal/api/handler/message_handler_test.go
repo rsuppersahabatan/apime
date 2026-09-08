@@ -40,3 +40,22 @@ func TestSendRoutesKeepTheirPaths(t *testing.T) {
 		}
 	}
 }
+
+// The allowlist and the error message must stay in sync: a type accepted here but missing from the
+// message (or the reverse) is exactly the drift the map replaced a comparison chain to avoid.
+func TestMediaAllowlistCoversTheDocumentedTypes(t *testing.T) {
+	want := []string{"image", "video", "gif", "sticker"}
+	if len(allowedMediaTypes) != len(want) {
+		t.Fatalf("allowlist tem %d tipos, esperava %d", len(allowedMediaTypes), len(want))
+	}
+	for _, mediaType := range want {
+		if !allowedMediaTypes[mediaType] {
+			t.Fatalf("tipo %q deveria ser aceito", mediaType)
+		}
+	}
+	for _, refused := range []string{"", "audio", "document", "GIF", "image/webp"} {
+		if allowedMediaTypes[refused] {
+			t.Fatalf("tipo %q não deveria ser aceito", refused)
+		}
+	}
+}

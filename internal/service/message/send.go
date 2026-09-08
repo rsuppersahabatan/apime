@@ -440,7 +440,10 @@ func (s *Service) Send(ctx context.Context, input SendInput) (model.Message, err
 		messageType = "text"
 		payload = input.Text
 
-	case "image", "video":
+	// "gif" rides the video branch on purpose: on WhatsApp a GIF IS an MP4 video carrying the
+	// GifPlayback flag, which is what makes the client loop it with no controls. Uploading a real
+	// .gif here would arrive as a still image.
+	case "image", "video", "gif":
 		if len(input.MediaData) == 0 {
 			return model.Message{}, ErrInvalidPayload
 		}
@@ -488,6 +491,9 @@ func (s *Service) Send(ctx context.Context, input SendInput) (model.Message, err
 			}
 			if input.Caption != "" {
 				videoMsg.Caption = proto.String(input.Caption)
+			}
+			if input.Type == "gif" {
+				videoMsg.GifPlayback = proto.Bool(true)
 			}
 			if input.Quoted != "" || len(input.MentionedJids) > 0 {
 				videoMsg.ContextInfo = buildContextInfo(input.Quoted, input.Participant, input.MentionedJids)
@@ -551,6 +557,52 @@ func (s *Service) Send(ctx context.Context, input SendInput) (model.Message, err
 		}
 		messageType = "audio"
 		payload = fmt.Sprintf("audio:%s", input.MediaType)
+
+	case "sticker":
+		if len(input.MediaData) == 0 {
+			return model.Message{}, ErrInvalidPayload
+		}
+
+		// Validated BEFORE the upload: a sticker outside 512x512 WebP under 500 KB is accepted by
+		// the server and then fails to render on the recipient's phone, with nothing reporting it.
+		// Refusing here turns a silent failure into an error the caller can act on, and saves the
+		// round trip.
+		sticker, err := inspectSticker(input.MediaData)
+		if err != nil {
+			return model.Message{}, fmt.Errorf("%w: %s", ErrInvalidPayload, err)
+		}
+
+		// MediaImage, not a type of its own: MediaStickerPack exists but is for sticker PACKS, and
+		// a lone sticker travels on the image keys.
+		uploadResp, err := client.Upload(ctx, input.MediaData, whatsmeow.MediaImage)
+		if err != nil {
+			return model.Message{}, fmt.Errorf("erro ao fazer upload da figurinha: %w", err)
+		}
+
+		stickerMsg := &waE2E.StickerMessage{
+			URL:           &uploadResp.URL,
+			DirectPath:    &uploadResp.DirectPath,
+			MediaKey:      uploadResp.MediaKey,
+			FileEncSHA256: uploadResp.FileEncSHA256,
+			FileSHA256:    uploadResp.FileSHA256,
+			FileLength:    &uploadResp.FileLength,
+			Mimetype:      proto.String(stickerMimeType),
+			Width:         proto.Uint32(sticker.width),
+			Height:        proto.Uint32(sticker.height),
+			// Read from the WebP header, never guessed: without it an animated sticker arrives
+			// frozen on the recipient's phone.
+			IsAnimated:        proto.Bool(sticker.animated),
+			MediaKeyTimestamp: proto.Int64(time.Now().Unix()),
+		}
+		// No caption: the protocol has no such field on a sticker, so one would be silently dropped.
+		if input.Quoted != "" || len(input.MentionedJids) > 0 {
+			stickerMsg.ContextInfo = buildContextInfo(input.Quoted, input.Participant, input.MentionedJids)
+		}
+		waMessage = &waE2E.Message{
+			StickerMessage: stickerMsg,
+		}
+		messageType = "sticker"
+		payload = fmt.Sprintf("sticker:%s", stickerMimeType)
 
 	case "document":
 		if len(input.MediaData) == 0 {

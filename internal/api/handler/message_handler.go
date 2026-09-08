@@ -60,6 +60,16 @@ func (h *MessageHandler) Register(r *gin.RouterGroup) {
 	r.GET("/instances/:id/messages", h.list)
 }
 
+// Media types /messages/media accepts. A map rather than a chain of comparisons because the list
+// grew: with four types the chain is where someone adds a type to the error message and forgets the
+// condition, which lets the type through into the service and fails further down.
+var allowedMediaTypes = map[string]bool{
+	"image":   true,
+	"video":   true,
+	"gif":     true,
+	"sticker": true,
+}
+
 type messageRequest struct {
 	To      string `json:"to" binding:"required"`
 	Type    string `json:"type" binding:"required"`
@@ -166,7 +176,7 @@ func (h *MessageHandler) sendMedia(c *gin.Context) {
 		return
 	}
 	to := c.PostForm("to")
-	mediaType := c.PostForm("type") // "image" or "video"
+	mediaType := c.PostForm("type") // "image", "video", "gif" or "sticker"
 	caption := c.PostForm("caption")
 
 	if to == "" {
@@ -174,8 +184,11 @@ func (h *MessageHandler) sendMedia(c *gin.Context) {
 		return
 	}
 
-	if mediaType != "image" && mediaType != "video" {
-		response.ErrorWithMessage(c, http.StatusBadRequest, "tipo deve ser 'image' ou 'video'")
+	// "gif" and "sticker" go through the same endpoint as the other media instead of getting routes
+	// of their own: quoting, mentions and mark-read are already wired here, and a parallel route
+	// would be a second copy of all of it, free to drift.
+	if !allowedMediaTypes[mediaType] {
+		response.ErrorWithMessage(c, http.StatusBadRequest, "tipo deve ser 'image', 'video', 'gif' ou 'sticker'")
 		return
 	}
 

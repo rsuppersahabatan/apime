@@ -282,7 +282,7 @@ paths:
 
   /instances/{id}/messages/media:
     post:
-      summary: Enviar mídia (imagem ou vídeo)
+      summary: Enviar mídia (imagem, vídeo, GIF ou figurinha)
       tags: [Mensagens]
       security: [{instanceToken: []}]
       parameters:
@@ -301,15 +301,23 @@ paths:
                   description: JID do destinatário
                 type:
                   type: string
-                  enum: [image, video]
-                  description: Tipo de mídia
+                  enum: [image, video, gif, sticker]
+                  description: >-
+                    Tipo de mídia. "gif" é enviado como vídeo MP4 com reprodução
+                    em laço (o WhatsApp não aceita arquivo .gif: ele chegaria
+                    como imagem parada). "sticker" exige WebP 512x512 de no
+                    máximo 500 KB, animado ou não.
                 file:
                   type: string
                   format: binary
-                  description: Arquivo de imagem ou vídeo
+                  description: >-
+                    Arquivo. Imagem e vídeo aceitam os formatos usuais; "gif"
+                    espera MP4; "sticker" espera WebP 512x512 até 500 KB.
                 caption:
                   type: string
-                  description: Legenda (opcional)
+                  description: >-
+                    Legenda (opcional). Ignorada em "sticker": o protocolo não
+                    tem esse campo na figurinha.
                 quoted:
                   type: string
                   description: ID da mensagem citada (opcional)
